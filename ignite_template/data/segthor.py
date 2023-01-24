@@ -7,7 +7,7 @@ import nibabel as nib
 import numpy as np
 import torch
 from scipy import ndimage
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import Dataset
 
 
 def _split(folder: str, split_coef: float) -> Tuple[List, ...]:

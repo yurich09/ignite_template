@@ -1,3 +1,6 @@
+from pathlib import Path
+
+from ignite.handlers import Checkpoint, DiskSaver, global_step_from_engine
 from loguru import logger
 
 
@@ -16,3 +19,19 @@ class Eval:
                 metrics_str[f'{mode}_{key}'] = f'{value:.2f}'
             logger.info(
                 f'Epoch: {engine.state.epoch}. metrics: {str(metrics_str)}')
+
+
+class Ckpt:
+
+    def __init__(self, trainer):
+        self.trainer = trainer
+
+    def __call__(self, engine, net):
+        return Checkpoint(
+            {'model': net},
+            DiskSaver(str(Path.cwd())),
+            n_saved=1,
+            filename_prefix='best',
+            score_function=lambda engine: engine.state.metrics['valid_dice'],
+            score_name='valid_dice',
+            global_step_transform=global_step_from_engine(self.trainer))
