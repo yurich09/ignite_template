@@ -1,0 +1,3 @@
+defaults:
+  - override hydra_logging: colorlog
+  - override job_logging: colorlog

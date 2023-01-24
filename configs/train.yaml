@@ -1,0 +1,14 @@
+defaults:
+  - _self_
+  - data: segthor.yaml
+  - model: unetr.yaml
+  - loss: dice_cce.yaml
+  - optim: adamw.yaml
+  - metrics: default.yaml
+  - hydra: default.yaml
+
+device:
+  - 0
+
+# seed for random number generators in pytorch, numpy and python.random
+seed: null

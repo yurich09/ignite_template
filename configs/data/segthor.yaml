@@ -1,0 +1,13 @@
+_target_: ignite_template.data.segthor.get_loaders
+
+folder: E:\data\rdl\segthor
+split_coef: 0.3
+batch: 1
+workers: 4
+shape:
+  - 128
+  - 128
+  - 128
+clip:
+  - -1000
+  - 1300
