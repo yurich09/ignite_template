@@ -5,10 +5,12 @@ defaults:
   - loss: dice_cce.yaml
   - optim: adamw.yaml
   - metrics: default.yaml
+  - callbecks: default.yaml
   - hydra: default.yaml
 
-device:
-  - 0
+device: cuda:0
+
+epoch: 3
 
 # seed for random number generators in pytorch, numpy and python.random
 seed: null

@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional, Sequence, Tuple
 
+import ignite.distributed as idist
 import nibabel as nib
 import numpy as np
 import torch
@@ -126,7 +127,7 @@ def get_loaders(folder: str, split_coef: float, batch: int, workers: int,
                 shape: List[int], clip: List[int]):
     train_set, valid_set = _split(folder, split_coef)
     return [
-        DataLoader(
+        idist.auto_dataloader(
             dataset=SegThor(item, clip, shape),
             batch_size=batch,
             num_workers=workers,
