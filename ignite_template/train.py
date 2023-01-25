@@ -10,8 +10,7 @@ from omegaconf import DictConfig
 from torch.nn import Module
 
 from ignite_template.core.callbecks import Eval, Saver
-
-logger.disable("ignite")
+from ignite_template.core.metrics import make_metrics
 
 
 @hydra.main(version_base="1.3",
@@ -35,7 +34,7 @@ def main(cfg: DictConfig):
     logger.info(f'Instantiating optimizer <{cfg.optim._target_}>')
     optimizer = hydra.utils.instantiate(cfg.optim, params=net.parameters())
 
-    metrics = make(cfg.metrics, loss=loss)
+    metrics = make_metrics(cfg.metrics, loss=loss)
 
     trainer = create_supervised_trainer(net, optimizer, loss, cfg.device)
     evaluator = create_supervised_evaluator(net, metrics, cfg.device)
