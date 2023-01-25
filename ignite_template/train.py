@@ -13,15 +13,12 @@ from ignite_template.core.callbecks import Eval, Saver
 from ignite_template.core.metrics import make_metrics
 
 
-@hydra.main(version_base="1.3",
-            config_path="../configs",
-            config_name="train.yaml")
-def main(cfg: DictConfig):
+def train(rank, cfg: DictConfig):
 
     if cfg.seed:
         manual_seed(cfg.seed)
 
-    logger.info(f"Instantiating datamodule <{cfg.data._target_}>")
+    logger.info(f'Instantiating datamodule <{cfg.data._target_}>')
     tloader, vloader = hydra.utils.instantiate(cfg.data)
 
     logger.info(f'Instantiating model <{cfg.model._target_}>')
@@ -54,9 +51,16 @@ def main(cfg: DictConfig):
     @trainer.on(Events.EPOCH_COMPLETED)
     def _finilize_epoch(engine):
         validator(engine)
-        saver(engine)
+        if idist.get_rank() == 0:
+            saver(engine)
 
     trainer.run(tloader, max_epochs=cfg.epoch)
+
+
+@hydra.main('../configs', 'train.yaml', '1.3')
+def main(cfg):
+    with idist.Parallel() as parallel:
+        parallel.run(train, cfg)
 
 
 if __name__ == '__main__':

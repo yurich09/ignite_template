@@ -4,3 +4,7 @@ defaults:
   - override job_logging: disabled
   - override hydra_logging: colorlog
   - override job_logging: colorlog
+
+
+job:
+  chdir: true

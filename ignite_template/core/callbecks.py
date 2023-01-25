@@ -28,7 +28,7 @@ class Saver:
     def __init__(self, net: Module, trainer: Any):
         self.saver = Checkpoint(
             {'model': net},
-            DiskSaver(str(Path.cwd())),
+            DiskSaver(Path()),
             n_saved=1,
             filename_prefix='best',
             score_function=lambda engine: engine.state.metrics['valid_dice'],
