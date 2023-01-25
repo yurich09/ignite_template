@@ -1,4 +1,6 @@
 defaults:
+  - _self_
+  - override hydra_logging: disabled
+  - override job_logging: disabled
   - override hydra_logging: colorlog
   - override job_logging: colorlog
-  - override job_logging: null

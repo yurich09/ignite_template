@@ -1,4 +1,4 @@
-_target_: ignite_template.core.metrics.make
+_target_: ignite_template.core.metrics.make_metrics
 
 dice:
   _target_: ignite_template.core.metrics.Dice

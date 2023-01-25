@@ -9,8 +9,7 @@ from loguru import logger
 from omegaconf import DictConfig
 from torch.nn import Module
 
-from ignite_template.core.callbecks import Ckpt, Eval
-from ignite_template.core.metrics import make
+from ignite_template.core.callbecks import Eval, Saver
 
 logger.disable("ignite")
 
@@ -42,7 +41,7 @@ def main(cfg: DictConfig):
     evaluator = create_supervised_evaluator(net, metrics, cfg.device)
 
     validator = Eval(tloader, vloader, evaluator)
-    saver = Ckpt(trainer)
+    saver = Saver(net, trainer)
 
     RunningAverage(output_transform=lambda x: x).attach(trainer, 'loss')
     if idist.get_rank() == 0:
@@ -56,7 +55,7 @@ def main(cfg: DictConfig):
     @trainer.on(Events.EPOCH_COMPLETED)
     def _finilize_epoch(engine):
         validator(engine)
-        saver(engine, net)
+        saver(engine)
 
     trainer.run(tloader, max_epochs=cfg.epoch)
 

@@ -25,7 +25,7 @@ class Dice(Metric):
         return self.sum.item() / self.count
 
 
-def make(cfg: DictConfig, loss: Module) -> Dict[str, Any]:
+def make_metrics(cfg: DictConfig, loss: Module) -> Dict[str, Any]:
     logger.info(f'Add loss <{loss.__module__}>')
     metrics = {'loss': Loss(loss)}
     if not cfg:

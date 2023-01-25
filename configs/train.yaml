@@ -5,7 +5,6 @@ defaults:
   - loss: dice_cce.yaml
   - optim: adamw.yaml
   - metrics: default.yaml
-  - callbecks: default.yaml
   - hydra: default.yaml
 
 device: cuda:0

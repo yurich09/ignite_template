@@ -1,7 +1,0 @@
-chkpt:
-  _target_: ignite_template.core.callbecks.make_chkpt
-
-  n_saved : 1
-  filename_prefix: best
-  score_function: valid_dice
-  score_name: valid_dice

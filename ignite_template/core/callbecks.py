@@ -1,7 +1,9 @@
 from pathlib import Path
+from typing import Any
 
 from ignite.handlers import Checkpoint, DiskSaver, global_step_from_engine
 from loguru import logger
+from torch.nn import Module
 
 
 class Eval:
@@ -21,17 +23,17 @@ class Eval:
                 f'Epoch: {engine.state.epoch}. metrics: {str(metrics_str)}')
 
 
-class Ckpt:
+class Saver:
 
-    def __init__(self, trainer):
-        self.trainer = trainer
-
-    def __call__(self, engine, net):
-        return Checkpoint(
+    def __init__(self, net: Module, trainer: Any):
+        self.saver = Checkpoint(
             {'model': net},
             DiskSaver(str(Path.cwd())),
             n_saved=1,
             filename_prefix='best',
             score_function=lambda engine: engine.state.metrics['valid_dice'],
             score_name='valid_dice',
-            global_step_transform=global_step_from_engine(self.trainer))
+            global_step_transform=global_step_from_engine(trainer))
+
+    def __call__(self, engine):
+        return self.saver(engine)
