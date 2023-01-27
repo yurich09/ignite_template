@@ -18,6 +18,8 @@ from ignite_template.core.metrics import make_metrics
 def train(rank, cfg: DictConfig):
     if cfg.seed:
         manual_seed(cfg.seed)
+    if rank == 0:
+        logger.add('log.log', level='INFO')
 
     logger.info(f'Creating <{cfg.data._target_}>')
     tloader, t2loader, vloader = hydra.utils.instantiate(cfg.data, rank=rank)
@@ -41,7 +43,12 @@ def train(rank, cfg: DictConfig):
 
     metrics = make_metrics(cfg.metrics, loss=loss)
 
-    amp_mode, scaler = ('amp', True) if cfg.fp16 else (None, False)
+    if cfg.fp16:
+        logger.info('FP16 is enabled')
+        amp_mode, scaler = 'amp', True
+    else:
+        amp_mode, scaler = None, False
+
     trainer = create_supervised_trainer(
         net, optimizer, loss, cfg.device,
         amp_mode=amp_mode, scaler=scaler,
@@ -55,7 +62,7 @@ def train(rank, cfg: DictConfig):
     saver = Saver(net, trainer, score_name='valid_dice')
 
     RunningAverage(output_transform=lambda x: x).attach(trainer, 'loss')
-    if idist.get_rank() == 0:
+    if rank == 0:
         tqdm_logger.ProgressBar().attach(trainer, ['loss'])
         tqdm_logger.ProgressBar().attach(evaluator)
 
@@ -66,7 +73,7 @@ def train(rank, cfg: DictConfig):
     @trainer.on(Events.EPOCH_COMPLETED)
     def _finalize_epoch(engine):
         validator(engine)
-        if idist.get_rank() == 0:
+        if rank == 0:
             saver(engine)
 
     trainer.run(tloader, max_epochs=cfg.epoch)
