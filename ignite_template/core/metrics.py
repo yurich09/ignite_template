@@ -1,4 +1,6 @@
-from typing import Any, Dict, Sequence, Union
+from __future__ import annotations
+
+from typing import Any, Sequence
 
 import hydra
 import torch
@@ -11,7 +13,6 @@ from ignite_template.core.base import dice
 
 
 class Dice(Metric):
-
     def reset(self) -> None:
         self.count = 0
         self.sum = torch.tensor(0.0, device=self._device)
@@ -21,11 +22,11 @@ class Dice(Metric):
         self.sum += dice(pred, true).mean().to(self._device)
         self.count += 1
 
-    def compute(self) -> Union[float, torch.Tensor]:
+    def compute(self) -> float | torch.Tensor:
         return self.sum.item() / self.count
 
 
-def make_metrics(cfg: DictConfig, loss: Module) -> Dict[str, Any]:
+def make_metrics(cfg: DictConfig, loss: Module) -> dict[str, Any]:
     logger.info(f'Add loss <{loss.__module__}>')
     metrics = {'loss': Loss(loss)}
     if not cfg:

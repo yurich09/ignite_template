@@ -4,12 +4,13 @@ defaults:
   - model: unetr.yaml
   - loss: dice_cce.yaml
   - optim: adamw.yaml
+  - sched: onecycle.yaml
   - metrics: default.yaml
   - hydra: default.yaml
 
 device: cuda:0
-
-epoch: 3
+epoch: 100
+fp16: yes
 
 # seed for random number generators in pytorch, numpy and python.random
 seed: null

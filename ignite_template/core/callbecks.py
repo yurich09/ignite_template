@@ -1,3 +1,4 @@
+from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
@@ -7,33 +8,37 @@ from torch.nn import Module
 
 
 class Eval:
-
     def __init__(self, tloader, vloader, evaluator):
         self.loaders = {'train': tloader, 'valid': vloader}
         self.evaluator = evaluator
 
     def __call__(self, engine):
+        epoch_metrics: dict[str, list[str]] = defaultdict(list)
+
         for mode, loader in self.loaders.items():
             metrics: dict[str, float] = self.evaluator.run(loader).metrics
-            metrics_str: dict[str, str] = {}
             for key, value in metrics.items():
                 engine.state.metrics[f'{mode}_{key}'] = value
-                metrics_str[f'{mode}_{key}'] = f'{value:.2f}'
-            logger.info(
-                f'Epoch: {engine.state.epoch}. metrics: {str(metrics_str)}')
+                epoch_metrics[key].append(f'{value:.4f}')
+
+        metrics_str = ', '.join(
+            f'{key}: {{}}'.format('/'.join(values))
+            for key, values in epoch_metrics.items()
+        )
+        logger.info(f'[{engine.state.epoch:03d}] {metrics_str}')
 
 
 class Saver:
-
-    def __init__(self, net: Module, trainer: Any):
+    def __init__(self, net: Module, trainer: Any, score_name: str):
         self.saver = Checkpoint(
             {'model': net},
             DiskSaver(Path()),
             n_saved=1,
             filename_prefix='best',
-            score_function=lambda engine: engine.state.metrics['valid_dice'],
-            score_name='valid_dice',
-            global_step_transform=global_step_from_engine(trainer))
+            score_function=lambda engine: engine.state.metrics[score_name],
+            score_name=score_name,
+            global_step_transform=global_step_from_engine(trainer),
+        )
 
     def __call__(self, engine):
         return self.saver(engine)
