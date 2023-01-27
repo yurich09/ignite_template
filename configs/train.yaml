@@ -10,7 +10,7 @@ defaults:
 
 device: cuda:0
 epoch: 100
-fp16: yes
+fp16: true
 
 # seed for random number generators in pytorch, numpy and python.random
 seed: null
