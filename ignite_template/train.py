@@ -11,7 +11,7 @@ from omegaconf import DictConfig
 from torch.nn import Module
 from torch.optim.lr_scheduler import OneCycleLR
 
-from ignite_template.core.callbecks import Eval, Saver
+from ignite_template.core.callbacks import Eval, Saver
 from ignite_template.core.metrics import make_metrics
 
 
@@ -19,7 +19,7 @@ def train(rank, cfg: DictConfig):
     if cfg.seed:
         manual_seed(cfg.seed)
     if rank == 0:
-        logger.add('log.log', level='INFO')
+        logger.add('log.log', level='DEBUG')
 
     logger.info(f'Creating <{cfg.data._target_}>')
     tloader, t2loader, vloader = hydra.utils.instantiate(cfg.data, rank=rank)
@@ -58,8 +58,9 @@ def train(rank, cfg: DictConfig):
         # amp_mode=amp_mode,
     )
 
-    validator = Eval(t2loader, vloader, evaluator)
-    saver = Saver(net, trainer, score_name='valid_dice')
+    score_name = 'valid_dice'
+    validator = Eval(t2loader, vloader, evaluator, score_name=score_name)
+    saver = Saver(net, trainer, score_name=score_name)
 
     RunningAverage(output_transform=lambda x: x).attach(trainer, 'loss')
     if rank == 0:

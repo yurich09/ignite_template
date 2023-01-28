@@ -5,25 +5,34 @@ from typing import Any, Sequence
 import hydra
 import torch
 from ignite.metrics import Loss, Metric
+from ignite.metrics.metric import sync_all_reduce, reinit__is_reduced
 from loguru import logger
 from omegaconf import DictConfig
 from torch.nn import Module
 
-from ignite_template.core.base import dice
+from .base import confusion_mat, dice
 
 
 class Dice(Metric):
+    def __init__(self, num_classes: int, output_transform=lambda x: x, device='cpu'):
+        self._mat = None
+        self._num_classes = num_classes
+        super().__init__(output_transform=output_transform, device=device)
+
+    @reinit__is_reduced
     def reset(self) -> None:
-        self.count = 0
-        self.sum = torch.tensor(0.0, device=self._device)
+        self._mat = torch.zeros(self._num_classes, self._num_classes,
+                                device=self._device, dtype=torch.long)
 
-    def update(self, output: Sequence[torch.Tensor]) -> None:
-        pred, true = output[0].detach(), output[1].detach()
-        self.sum += dice(pred, true).mean().to(self._device)
-        self.count += 1
+    @reinit__is_reduced
+    def update(self, output: tuple[torch.Tensor, torch.Tensor]) -> None:
+        pred, true = (o.detach() for o in output)
+        self._mat += confusion_mat(pred, true).to(self._device)
 
+    @sync_all_reduce('_mat:SUM')
     def compute(self) -> float | torch.Tensor:
-        return self.sum.item() / self.count
+        mat = self._mat.double() / self._mat.sum()
+        return dice(mat).mean()
 
 
 def make_metrics(cfg: DictConfig, loss: Module) -> dict[str, Any]:

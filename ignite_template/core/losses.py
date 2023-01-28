@@ -1,16 +1,21 @@
 import torch.nn.functional as F
 from torch.nn import Module
 
-from ignite_template.core.base import dice_grad
+from .base import confusion_mat_grad, dice
+
+
+def _dice_loss(pred, true):
+    mat = confusion_mat_grad(pred, true)
+    mat = mat.double() / mat.sum()
+    return 1 - dice(mat).mean()
 
 
 class DiceLoss(Module):
     def forward(self, inputs, targets):
-        return (1 - dice(inputs, targets)).mean()
+        return _dice_loss(inputs, targets)
 
 
 class WeightLoss(Module):
     def forward(self, inputs, targets):
-        cce = F.cross_entropy(inputs, targets)
-        dice_loss = 1 - dice_grad(inputs, targets)
-        return (cce + 0.5 * dice_loss).mean()
+        return (F.cross_entropy(inputs, targets)
+            + 0.5 * _dice_loss(inputs, targets))

@@ -7,3 +7,6 @@ workers: 24
 num_reps: 20
 shape: [128, 128, 128]
 clip: [-1000, 1300]
+maxscale: 1.0
+maxshift: 0.0
+valaug: false

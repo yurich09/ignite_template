@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Sequence
@@ -94,6 +95,41 @@ def resize(data: np.ndarray,
     return _resize(data, zoom, order, antialias)
 
 
+warnings.filterwarnings('ignore', module='scipy.ndimage')
+
+
+@dataclass(frozen=True)
+class ShiftScale:
+    maxscale: float = 1.1
+    maxshift: float = 0.05
+
+    def __bool__(self) -> bool:
+        return self.maxscale > 1 or self.maxshift > 0
+
+    def __call__(self, *arrs: np.ndarray) -> tuple[np.ndarray, ...]:
+        assert len({a.shape for a in arrs}) == 1
+        if not self:
+            return arrs
+
+        rank = arrs[0].ndim
+        kx, dx = torch.rand(2, rank).numpy()
+        scale = (self.maxscale ** (2 * kx - 1)) if self.maxscale > 1 else np.ones(3)
+        shift = (self.maxshift * (2 * dx - 1) * arrs[0].shape[:rank]) if self.maxshift > 0 else np.zeros(3)
+
+        center = np.array(arrs[0].shape) / 2
+        offset = center * (1 - scale) + shift
+
+        rs = ()
+        for a in arrs:
+            if a.dtype.kind == 'f':
+                order = 3  # cubic
+                a = ndimage.spline_filter(a, order=order, output='f4')
+            else:
+                order = 0  # nearest
+            rs += ndimage.affine_transform(a, scale, offset, order=order, prefilter=False).astype(a.dtype),
+        return rs
+
+
 def _load_zxy(path: Path) -> tuple[np.ndarray, Any]:
     obj = nib.load(str(path))
     xyz = np.asanyarray(obj.dataobj)
@@ -133,6 +169,8 @@ class SegThor(Dataset):
     shape: tuple[int, int, int]
     num_reps: int = 1
 
+    aug: Any | None = None
+
     def __len__(self) -> int:
         return len(self.folders) * self.num_reps
 
@@ -155,13 +193,17 @@ class SegThor(Dataset):
             mask, mat = _load_gt(mask_path, self.shape)
             _save_zxy(m_cache, mask, mat)
 
-        # c z x y
-        voi = voi[None, ...]
+        if self.aug:
+            voi, mask = self.aug(voi, mask)
+
+        voi = voi[None, ...]  # c z x y
         return torch.from_numpy(voi), torch.from_numpy(mask).long()
 
 
 def get_loaders(folder: str, split_coef: float, batch: int, workers: int,
-                shape: tuple[int, ...], clip: tuple[int, int], num_reps: int = 1, rank: int = 0):
+                shape: tuple[int, ...], clip: tuple[int, int], num_reps: int = 1,
+                maxscale: float = 1, maxshift: float = 0, valaug: bool = False,
+                rank: int = 0):
     dataroot = _find_root(Path(folder))
     train_set, valid_set = _split(dataroot, split_coef)
 
@@ -177,9 +219,18 @@ def get_loaders(folder: str, split_coef: float, batch: int, workers: int,
         )
         for _ in tqdm(dl):
             pass
+
+    aug = ShiftScale(maxscale=maxscale, maxshift=maxshift)
     return [
         idist.auto_dataloader(
-            dataset=SegThor(caches, folders, clip, shape, num_reps if is_train else 1),
+            dataset=SegThor(
+                caches=caches,
+                folders=folders,
+                clip=clip,
+                shape=shape,
+                num_reps=num_reps if is_train else (4 if valaug else 1),
+                aug=aug if is_train or valaug else None,
+            ),
             batch_size=batch,
             num_workers=workers,
             shuffle=is_train,

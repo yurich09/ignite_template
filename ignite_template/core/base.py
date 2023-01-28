@@ -33,28 +33,18 @@ def to_prob(pred: torch.Tensor,
     return c, pred, true
 
 
-def dice(pred: torch.Tensor,
-         true: torch.Tensor,
-         macro: bool = True) -> torch.Tensor:
-    # TODO: Add docs
+def confusion_mat(pred: torch.Tensor, true: torch.Tensor) -> torch.Tensor:
     c, pred, true = to_index(pred, true)
 
-    def _dice(pred: torch.Tensor, true: torch.Tensor) -> torch.Tensor:
-        true = true.view(-1)
-        pred = pred.view(-1)
-        tp, t, p = (x.bincount(minlength=c).clamp_(1).double()
-                    for x in (true[true == pred], true, pred))
-        return 2 * tp / (t + p)
+    # flatten
+    pred = pred.view(-1)  # (b n)
+    true = true.view(-1)  # (b n)
 
-    if macro:
-        return _dice(pred, true)
-
-    b = pred.shape[0]
-    *scores, = map(_dice, pred.view(b, -1).unbind(), true.view(b, -1).unbind())
-    return torch.mean(torch.stack(scores), dim=0)
+    mat = torch.zeros(c, c, dtype=torch.long)
+    return mat.index_put_((true, pred), torch.tensor(1), accumulate=True)
 
 
-def confusion_mat(pred: torch.Tensor, true: torch.Tensor) -> torch.Tensor:
+def confusion_mat_grad(pred: torch.Tensor, true: torch.Tensor) -> torch.Tensor:
     c, pred, true = to_prob(pred, true)
 
     # flatten
@@ -62,10 +52,9 @@ def confusion_mat(pred: torch.Tensor, true: torch.Tensor) -> torch.Tensor:
     pred = pred.view(b, c, -1).permute(0, 2, 1).reshape(-1, c)  # (b n) c
     true = true.view(-1)  # (b n)
 
-    mat = torch.zeros(c, c, device=pred.device, dtype=pred.dtype).index_add(0, true, pred)
-    return mat.double() / mat.sum()
+    mat = torch.zeros(c, c, device=pred.device, dtype=pred.dtype)
+    return mat.index_add(0, true, pred)
 
 
-def dice_grad(pred: torch.Tensor, true: torch.Tensor) -> torch.Tensor:
-    mat = confusion_mat(pred, true)
+def dice(mat: torch.Tensor) -> torch.Tensor:
     return 2 * mat.diag() / (mat.sum(0) + mat.sum(1)).clamp(_EPS)
