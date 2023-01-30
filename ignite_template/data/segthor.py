@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+import os
+import random
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
@@ -20,11 +23,18 @@ def _find_root(dataroot: Path) -> Path:
     return first.parent.parent
 
 
-def _split(dataroot: Path, ratio: float) -> tuple[list[Path], ...]:
+def _split(dataroot: Path, ratio: float, seed: int | None) -> tuple[list[Path], ...]:
     folders = sorted(dataroot.iterdir())
 
+    random.Random(seed).shuffle(folders)
+
     pos = int(len(folders) * ratio)
-    return folders[pos:], folders[:pos]
+    subsets = folders[pos:], folders[:pos]
+
+    with Path(f'split.{os.getpid()}.json').open('w') as fp:
+        json.dump({k: [p.as_posix() for p in ps] for k, ps in zip(('train', 'val'), subsets)},
+                  fp, indent=2)
+    return subsets
 
 
 def sub_idiv(x: np.ndarray, sub: np.ndarray, div: np.ndarray) -> np.ndarray:
@@ -203,9 +213,10 @@ class SegThor(Dataset):
 def get_loaders(folder: str, split_coef: float, batch: int, workers: int,
                 shape: tuple[int, ...], clip: tuple[int, int], num_reps: int = 1,
                 maxscale: float = 1, maxshift: float = 0, valaug: bool = False,
+                seed: int | None = None,
                 rank: int = 0):
     dataroot = _find_root(Path(folder))
-    train_set, valid_set = _split(dataroot, split_coef)
+    train_set, valid_set = _split(dataroot, split_coef, seed)
 
     cacheroot = dataroot.parent / f'cache_{shape[0]}_{shape[1]}_{shape[2]}'
     caches = (cacheroot / f'hu_{clip[0]}_{clip[1]}', cacheroot / 'masks')

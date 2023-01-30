@@ -22,7 +22,7 @@ def train(rank, cfg: DictConfig):
         logger.add('log.log', level='DEBUG')
 
     logger.info(f'Creating <{cfg.data._target_}>')
-    tloader, t2loader, vloader = hydra.utils.instantiate(cfg.data, rank=rank)
+    tloader, t2loader, vloader = hydra.utils.instantiate(cfg.data, rank=rank, seed=cfg.seed)
 
     logger.info(f'Creating <{cfg.model._target_}>')
     net: Module = hydra.utils.instantiate(cfg.model)
