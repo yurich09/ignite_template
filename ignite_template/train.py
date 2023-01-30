@@ -1,3 +1,5 @@
+import os
+
 import hydra
 import ignite.distributed as idist
 import torch
@@ -15,11 +17,18 @@ from ignite_template.core.callbacks import Eval, Saver
 from ignite_template.core.metrics import make_metrics
 
 
+NUM_GPUS = torch.cuda.device_count()
+DIST_PARAMS = {'backend': 'nccl', 'nproc_per_node': NUM_GPUS}
+
+
 def train(rank, cfg: DictConfig):
     if cfg.seed:
         manual_seed(cfg.seed)
     if rank == 0:
         logger.add('log.log', level='DEBUG')
+    else:
+        logger.info(f'Mute logger in {os.getpid()} process')
+        logger.remove()
 
     logger.info(f'Creating <{cfg.data._target_}>')
     tloader, t2loader, vloader = hydra.utils.instantiate(cfg.data, rank=rank, seed=cfg.seed)
@@ -50,11 +59,11 @@ def train(rank, cfg: DictConfig):
         amp_mode, scaler = None, False
 
     trainer = create_supervised_trainer(
-        net, optimizer, loss, cfg.device,
+        net, optimizer, loss, cfg.device, non_blocking=True,
         amp_mode=amp_mode, scaler=scaler,
     )
     evaluator = create_supervised_evaluator(
-        net, metrics, cfg.device,
+        net, metrics, cfg.device, non_blocking=True,
         # amp_mode=amp_mode,
     )
 
@@ -82,7 +91,7 @@ def train(rank, cfg: DictConfig):
 
 @hydra.main('../configs', 'train.yaml', '1.3')
 def main(cfg):
-    with idist.Parallel() as parallel:
+    with idist.Parallel(**DIST_PARAMS) as parallel:
         parallel.run(train, cfg)
 
 

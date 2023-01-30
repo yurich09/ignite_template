@@ -8,7 +8,7 @@ defaults:
   - metrics: default.yaml
   - hydra: default.yaml
 
-device: cuda:0
+device: cuda
 epoch: 100
 fp16: true
 
