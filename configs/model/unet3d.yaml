@@ -1,0 +1,6 @@
+_target_: ignite_template.models.unet3d.UNet
+
+n_channels: 1
+n_classes: 5
+scale: 0.5
+trilinear: True
