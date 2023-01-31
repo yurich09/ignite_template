@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from typing import Any, Sequence
+from typing import Any
 
 import hydra
 import torch
 from ignite.metrics import Loss, Metric
-from ignite.metrics.metric import sync_all_reduce, reinit__is_reduced
+from ignite.metrics.metric import reinit__is_reduced, sync_all_reduce
 from loguru import logger
 from omegaconf import DictConfig
 from torch.nn import Module
@@ -14,15 +14,18 @@ from .base import confusion_mat, dice
 
 
 class Dice(Metric):
-    def __init__(self, num_classes: int, output_transform=lambda x: x, device='cpu'):
-        self._mat = None
+    def __init__(self,
+                 num_classes: int,
+                 output_transform=lambda x: x,
+                 device='cpu'):
+        self._mat: torch.Tensor | None = None
         self._num_classes = num_classes
         super().__init__(output_transform=output_transform, device=device)
 
     @reinit__is_reduced
     def reset(self) -> None:
-        self._mat = torch.zeros(self._num_classes, self._num_classes,
-                                device=self._device, dtype=torch.long)
+        c = self._num_classes
+        self._mat = torch.zeros(c, c, device=self._device, dtype=torch.long)
 
     @reinit__is_reduced
     def update(self, output: tuple[torch.Tensor, torch.Tensor]) -> None:
@@ -31,6 +34,7 @@ class Dice(Metric):
 
     @sync_all_reduce('_mat:SUM')
     def compute(self) -> float | torch.Tensor:
+        assert self._mat is not None
         mat = self._mat.double() / self._mat.sum()
         return dice(mat).mean()
 

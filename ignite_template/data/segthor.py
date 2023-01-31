@@ -4,9 +4,10 @@ import json
 import os
 import random
 import warnings
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any
 
 import ignite.distributed as idist
 import nibabel as nib
@@ -14,7 +15,7 @@ import numpy as np
 import torch
 from loguru import logger
 from scipy import ndimage
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
 
 
@@ -23,7 +24,8 @@ def _find_root(dataroot: Path) -> Path:
     return first.parent.parent
 
 
-def _split(dataroot: Path, ratio: float, seed: int | None) -> tuple[list[Path], ...]:
+def _split(dataroot: Path, ratio: float,
+           seed: int | None) -> tuple[list[Path], ...]:
     folders = sorted(dataroot.iterdir())
 
     random.Random(seed).shuffle(folders)
@@ -31,9 +33,13 @@ def _split(dataroot: Path, ratio: float, seed: int | None) -> tuple[list[Path], 
     pos = int(len(folders) * ratio)
     subsets = folders[pos:], folders[:pos]
 
+    obj = {
+        k: [p.as_posix() for p in ps]
+        for k, ps in zip(('train', 'val'), subsets)
+    }
     with Path(f'split.{os.getpid()}.json').open('w') as fp:
-        json.dump({k: [p.as_posix() for p in ps] for k, ps in zip(('train', 'val'), subsets)},
-                  fp, indent=2)
+        json.dump(obj, fp, indent=2)
+
     return subsets
 
 
@@ -61,7 +67,10 @@ def norm_zero_to_one(
     return sub_idiv(a, a_min, a_max - a_min)  # type: ignore
 
 
-def clip_and_norm(arr, min_clip, max_clip, axes=None) -> np.ndarray:
+def clip_and_norm(arr: np.ndarray,
+                  min_clip: float,
+                  max_clip: float,
+                  axes=None) -> np.ndarray:
     arr = arr.clip(min_clip, max_clip)
     return norm_zero_to_one(arr, min_clip, max_clip, axes=axes)
 
@@ -88,7 +97,7 @@ def _resize(data: np.ndarray,
 
 def resize(data: np.ndarray,
            order: int,
-           shape: list[int],
+           shape: Sequence[int],
            antialias: bool = False) -> np.ndarray:
     """
     This function resizes input data with specified interpolation mode.
@@ -122,21 +131,24 @@ class ShiftScale:
             return arrs
 
         rank = arrs[0].ndim
-        kx, dx = torch.rand(2, rank).numpy()
-        scale = (self.maxscale ** (2 * kx - 1)) if self.maxscale > 1 else np.ones(3)
-        shift = (self.maxshift * (2 * dx - 1) * arrs[0].shape[:rank]) if self.maxshift > 0 else np.zeros(3)
+        kx, dx = (torch.rand(2, rank).numpy() * 2 - 1)
+        scale = (self.maxscale ** kx) if self.maxscale > 1 else np.ones(3)
+        shift = ((self.maxshift * dx * arrs[0].shape[:rank])
+                 if self.maxshift > 0 else np.zeros(3))
 
         center = np.array(arrs[0].shape) / 2
         offset = center * (1 - scale) + shift
 
-        rs = ()
+        rs: tuple[np.ndarray, ...] = ()
         for a in arrs:
             if a.dtype.kind == 'f':
                 order = 3  # cubic
                 a = ndimage.spline_filter(a, order=order, output='f4')
             else:
                 order = 0  # nearest
-            rs += ndimage.affine_transform(a, scale, offset, order=order, prefilter=False).astype(a.dtype),
+            r = ndimage.affine_transform(
+                a, scale, offset, order=order, prefilter=False).astype(a.dtype)
+            rs += r,
         return rs
 
 
@@ -146,14 +158,15 @@ def _load_zxy(path: Path) -> tuple[np.ndarray, Any]:
     return xyz.transpose(2, 0, 1), obj.affine
 
 
-def _load_voi(path: Path, hu_range: tuple[int, int], shape: tuple[int, ...]) -> tuple[np.ndarray, Any]:
+def _load_voi(path: Path, hu_range: tuple[int, int],
+              shape: Sequence[int]) -> tuple[np.ndarray, Any]:
     arr, mat = _load_zxy(path)
     arr = clip_and_norm(arr, *hu_range)
     arr = resize(arr, 3, shape)  # cubic resize
     return arr, mat
 
 
-def _load_gt(path: Path, shape: tuple[int, ...]) -> tuple[np.ndarray, Any]:
+def _load_gt(path: Path, shape: Sequence[int]) -> tuple[np.ndarray, Any]:
     arr, mat = _load_zxy(path)
     arr = resize(arr, 0, shape)  # nearest resize
     return arr, mat
@@ -176,7 +189,7 @@ class SegThor(Dataset):
     caches: tuple[Path, Path]
     folders: Sequence[Path]
     clip: tuple[int, int]
-    shape: tuple[int, int, int]
+    shape: Sequence[int]
     num_reps: int = 1
 
     aug: Any | None = None
@@ -190,13 +203,16 @@ class SegThor(Dataset):
         voi_path = fdr / f'{fdr.name}.nii.gz'
         mask_path = fdr / 'GT.nii.gz'
 
-        v_cache, m_cache = (cache / f'{fdr.name}.nii.gz' for cache in self.caches)
+        # Load volume
+        v_cache, m_cache = (
+            cache / f'{fdr.name}.nii.gz' for cache in self.caches)
         if v_cache.is_file():
             voi, _ = _load_zxy(v_cache)
         else:
             voi, mat = _load_voi(voi_path, self.clip, self.shape)
             _save_zxy(v_cache, voi, mat)
 
+        # Load mask
         if m_cache.is_file():
             mask, _ = _load_zxy(m_cache)
         else:
@@ -210,9 +226,16 @@ class SegThor(Dataset):
         return torch.from_numpy(voi), torch.from_numpy(mask).long()
 
 
-def get_loaders(folder: str, split_coef: float, batch: int, workers: int,
-                shape: tuple[int, ...], clip: tuple[int, int], num_reps: int = 1,
-                maxscale: float = 1, maxshift: float = 0, valaug: bool = False,
+def get_loaders(folder: str,
+                split_coef: float,
+                batch: int,
+                workers: int,
+                shape: Sequence[int],
+                clip: tuple[int, int],
+                num_reps: int = 1,
+                maxscale: float = 1,
+                maxshift: float = 0,
+                valaug: bool = False,
                 seed: int | None = None,
                 rank: int = 0):
     dataroot = _find_root(Path(folder))
@@ -222,13 +245,12 @@ def get_loaders(folder: str, split_coef: float, batch: int, workers: int,
     caches = (cacheroot / f'hu_{clip[0]}_{clip[1]}', cacheroot / 'masks')
 
     if rank == 0:
-        logger.info('Generate data cache')
         dl = DataLoader(
             SegThor(caches, train_set + valid_set, clip, shape),
             batch_size=1,
             num_workers=workers,
         )
-        for _ in tqdm(dl):
+        for _ in tqdm(dl, desc='Generate volume rescales'):
             pass
 
     aug = ShiftScale(maxscale=maxscale, maxshift=maxshift)
@@ -245,5 +267,9 @@ def get_loaders(folder: str, split_coef: float, batch: int, workers: int,
             batch_size=batch,
             num_workers=workers,
             shuffle=is_train,
-        ) for is_train, folders in [(True, train_set), (False, train_set), (False, valid_set)]
+        ) for is_train, folders in [
+            (True, train_set),
+            (False, train_set),
+            (False, valid_set),
+        ]
     ]

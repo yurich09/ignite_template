@@ -18,4 +18,4 @@ class DiceLoss(Module):
 class WeightLoss(Module):
     def forward(self, inputs, targets):
         return (F.cross_entropy(inputs, targets)
-            + 0.5 * _dice_loss(inputs, targets))
+                + 0.5 * _dice_loss(inputs, targets))

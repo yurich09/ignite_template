@@ -1,0 +1,17 @@
+[tool.yapf]
+based_on_style = "facebook"
+
+align_closing_bracket_with_visual_indent = true
+allow_multiline_dictionary_keys = true
+coalesce_brackets = true
+column_limit = 79
+dedent_closing_brackets = false
+spaces_around_power_operator = true
+
+split_arguments_when_comma_terminated = true
+split_before_arithmetic_operator = true
+split_before_bitwise_operator = true
+split_before_dict_set_generator = false
+split_before_logical_operator = true
+split_before_dot = true
+split_before_expression_after_opening_paren = true

@@ -5,17 +5,15 @@ import ignite.distributed as idist
 import torch
 from ignite.contrib.handlers import tqdm_logger
 from ignite.engine import (Events, create_supervised_evaluator,
-                           create_supervised_trainer, convert_tensor)
+                           create_supervised_trainer)
 from ignite.metrics import RunningAverage
 from ignite.utils import manual_seed
 from loguru import logger
 from omegaconf import DictConfig
 from torch.nn import Module
-from torch.optim.lr_scheduler import OneCycleLR
 
 from ignite_template.core.callbacks import Eval, Saver
 from ignite_template.core.metrics import make_metrics
-
 
 NUM_GPUS = torch.cuda.device_count()
 DIST_PARAMS = {'backend': 'nccl', 'nproc_per_node': NUM_GPUS}
@@ -31,12 +29,14 @@ def train(rank, cfg: DictConfig):
         logger.remove()
 
     logger.info(f'Creating <{cfg.data._target_}>')
-    tloader, t2loader, vloader = hydra.utils.instantiate(cfg.data, rank=rank, seed=cfg.seed)
+    tloader, t2loader, vloader = hydra.utils.instantiate(
+        cfg.data, rank=rank, seed=cfg.seed)
 
     logger.info(f'Creating <{cfg.model._target_}>')
     net: Module = hydra.utils.instantiate(cfg.model)
 
-    num_params = sum(p.numel() for it in (net.parameters(), net.buffers()) for p in it)
+    num_params = sum(
+        p.numel() for it in (net.parameters(), net.buffers()) for p in it)
     logger.info(f'Total parameters: {num_params/1e6:.2f}M')
 
     net = idist.auto_model(net, sync_bn=True)
@@ -48,7 +48,11 @@ def train(rank, cfg: DictConfig):
     optimizer = hydra.utils.instantiate(cfg.optim, params=net.parameters())
 
     logger.info(f'Creating <{cfg.sched._target_}>')
-    scheduler = hydra.utils.instantiate(cfg.sched, optimizer=optimizer, epochs=cfg.epoch, steps_per_epoch=len(tloader))
+    scheduler = hydra.utils.instantiate(
+        cfg.sched,
+        optimizer=optimizer,
+        epochs=cfg.epoch,
+        steps_per_epoch=len(tloader))
 
     metrics = make_metrics(cfg.metrics, loss=loss)
 
@@ -59,11 +63,19 @@ def train(rank, cfg: DictConfig):
         amp_mode, scaler = None, False
 
     trainer = create_supervised_trainer(
-        net, optimizer, loss, cfg.device, non_blocking=True,
-        amp_mode=amp_mode, scaler=scaler,
+        net,
+        optimizer,
+        loss,
+        cfg.device,
+        non_blocking=True,
+        amp_mode=amp_mode,
+        scaler=scaler,
     )
     evaluator = create_supervised_evaluator(
-        net, metrics, cfg.device, non_blocking=True,
+        net,
+        metrics,
+        cfg.device,
+        non_blocking=True,
         # amp_mode=amp_mode,
     )
 

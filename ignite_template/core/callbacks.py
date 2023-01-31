@@ -17,20 +17,20 @@ class Eval:
     def __call__(self, engine):
         epoch_metrics: dict[str, list[str]] = defaultdict(list)
 
-        for i, (mode, loader) in enumerate(self._loaders.items()):
+        for mode, loader in self._loaders.items():
             metrics: dict[str, float] = self._evaluator.run(loader).metrics
             for name, value in metrics.items():
                 engine.state.metrics[f'{mode}_{name}'] = value
                 epoch_metrics[name].append(f'{value:.4f}')
 
-        is_sota = (value < self._sota) if self._score_name.endswith('loss') else (value > self._sota)
+        value = engine.state.metrics[self._score_name]
+        is_sota = ((value < self._sota) if self._score_name.endswith('loss')
+                   else (value > self._sota))
         if is_sota:
             self._sota = value
 
-        metrics_str = ', '.join(
-            f'{name}: {{}}'.format('/'.join(values))
-            for name, values in epoch_metrics.items()
-        )
+        metrics_str = ', '.join(f'{name}: {{}}'.format('/'.join(values))
+                                for name, values in epoch_metrics.items())
         emit = logger.info if is_sota else logger.debug
         emit(f'[{engine.state.epoch:03d}] {metrics_str}')
 
