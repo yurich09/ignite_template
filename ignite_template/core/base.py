@@ -1,5 +1,5 @@
+import ignite.distributed as idist
 import torch
-import torch.distributed as dist
 from torch.distributed import nn
 
 _EPS = torch.finfo(torch.half).eps
@@ -54,12 +54,10 @@ def confusion_mat_grad(pred: torch.Tensor, true: torch.Tensor) -> torch.Tensor:
     pred = pred.view(b, c, -1).permute(0, 2, 1).reshape(-1, c)  # (b n) c
     true = true.view(-1)  # (b n)
 
-    mat = torch.zeros(c, c, device=pred.device, dtype=pred.dtype)
-    mat = mat.index_add(0, true, pred)
-    # mat = pred.new_zeros(c, c).index_add(0, true, pred)
+    mat = pred.new_zeros(c, c).index_add(0, true, pred)
 
-    if False and dist.get_world_size() > 1:
-        mat = nn.all_reduce(mat, op=dist.ReduceOp.SUM)
+    if idist.get_world_size() > 1:
+        mat = nn.all_reduce(mat)
 
     return mat
 

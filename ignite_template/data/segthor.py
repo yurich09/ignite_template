@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
 import random
 import warnings
 from collections.abc import Sequence
@@ -13,7 +12,6 @@ import ignite.distributed as idist
 import nibabel as nib
 import numpy as np
 import torch
-from loguru import logger
 from scipy import ndimage
 from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
@@ -24,20 +22,21 @@ def _find_root(dataroot: Path) -> Path:
     return first.parent.parent
 
 
-def _split(dataroot: Path, ratio: float,
+def _split(dataroot: Path, val_ratio: float,
            seed: int | None) -> tuple[list[Path], ...]:
-    folders = sorted(dataroot.iterdir())
+    assert idist.get_rank() == 0
 
+    folders = sorted(dataroot.iterdir())
     random.Random(seed).shuffle(folders)
 
-    pos = int(len(folders) * ratio)
+    pos = int(len(folders) * val_ratio)
     subsets = folders[pos:], folders[:pos]
 
     obj = {
         k: [p.as_posix() for p in ps]
         for k, ps in zip(('train', 'val'), subsets)
     }
-    with Path(f'split.{os.getpid()}.json').open('w') as fp:
+    with Path(f'split.json').open('w') as fp:
         json.dump(obj, fp, indent=2)
 
     return subsets
@@ -185,39 +184,49 @@ def _save_zxy(path: Path, zxy: np.ndarray, mat) -> None:
 
 
 @dataclass(frozen=True)
-class SegThor(Dataset):
+class NiftyCacher(Dataset):
     caches: tuple[Path, Path]
     folders: Sequence[Path]
-    clip: tuple[int, int]
+    hu_range: tuple[int, int]
     shape: Sequence[int]
-    num_reps: int = 1
 
+    def __len__(self) -> int:
+        return len(self.folders)
+
+    def __getitem__(self, idx: int) -> tuple[Path, Path]:
+        fdr = self.folders[idx]
+        from_voi = fdr / f'{fdr.name}.nii.gz'
+        from_mask = fdr / 'GT.nii.gz'
+
+        to_voi, to_mask = (
+            cache / f'{fdr.name}.nii.gz' for cache in self.caches)
+
+        # Save volume
+        if not to_voi.is_file():
+            voi, mat = _load_voi(from_voi, self.hu_range, self.shape)
+            _save_zxy(to_voi, voi, mat)
+
+        # Save mask
+        if not to_mask.is_file():
+            mask, mat = _load_gt(from_mask, self.shape)
+            _save_zxy(to_mask, mask, mat)
+
+        return (to_voi, to_mask)
+
+
+@dataclass(frozen=True)
+class NiftyDataset(Dataset):
+    files: Sequence[tuple[Path, Path]]
+    num_reps: int = 1
     aug: Any | None = None
 
     def __len__(self) -> int:
-        return len(self.folders) * self.num_reps
+        return len(self.files) * self.num_reps
 
     def __getitem__(self, idx: int) -> tuple[torch.Tensor, ...]:
-        fdr = self.folders[idx % len(self.folders)]
-
-        voi_path = fdr / f'{fdr.name}.nii.gz'
-        mask_path = fdr / 'GT.nii.gz'
-
-        # Load volume
-        v_cache, m_cache = (
-            cache / f'{fdr.name}.nii.gz' for cache in self.caches)
-        if v_cache.is_file():
-            voi, _ = _load_zxy(v_cache)
-        else:
-            voi, mat = _load_voi(voi_path, self.clip, self.shape)
-            _save_zxy(v_cache, voi, mat)
-
-        # Load mask
-        if m_cache.is_file():
-            mask, _ = _load_zxy(m_cache)
-        else:
-            mask, mat = _load_gt(mask_path, self.shape)
-            _save_zxy(m_cache, mask, mat)
+        voi_path, mask_path = self.files[idx % len(self.files)]
+        voi, _ = _load_zxy(voi_path)
+        mask, _ = _load_zxy(mask_path)
 
         if self.aug:
             voi, mask = self.aug(voi, mask)
@@ -226,50 +235,60 @@ class SegThor(Dataset):
         return torch.from_numpy(voi), torch.from_numpy(mask).long()
 
 
-def get_loaders(folder: str,
-                split_coef: float,
-                batch: int,
-                workers: int,
-                shape: Sequence[int],
-                clip: tuple[int, int],
-                num_reps: int = 1,
-                maxscale: float = 1,
-                maxshift: float = 0,
-                valaug: bool = False,
-                seed: int | None = None,
-                rank: int = 0):
+def prepare_data(
+    folder: str,
+    val_ratio: float,
+    shape: Sequence[int],
+    hu_range: tuple[int, int],
+    workers: int,
+    seed: int | None = None,
+) -> tuple[list[tuple[Path, Path]], list[tuple[Path, Path]]]:
+    assert idist.get_rank() == 0
+
     dataroot = _find_root(Path(folder))
-    train_set, valid_set = _split(dataroot, split_coef, seed)
+    train_dirs, valid_dirs = _split(dataroot, val_ratio, seed)
 
     cacheroot = dataroot.parent / f'cache_{shape[0]}_{shape[1]}_{shape[2]}'
-    caches = (cacheroot / f'hu_{clip[0]}_{clip[1]}', cacheroot / 'masks')
+    caches = (cacheroot / f'hu_{hu_range[0]}_{hu_range[1]}',
+              cacheroot / 'masks')
 
-    if rank == 0:
-        dl = DataLoader(
-            SegThor(caches, train_set + valid_set, clip, shape),
-            batch_size=1,
-            num_workers=workers,
-        )
-        for _ in tqdm(dl, desc='Generate volume rescales'):
-            pass
+    fsets = (
+        NiftyCacher(caches, dirs, hu_range, shape)
+        for dirs in (train_dirs, valid_dirs))
 
+    loaders = (DataLoader(fset, None, num_workers=workers) for fset in fsets)
+
+    train_files, valid_files = (
+        list(tqdm(loader, desc='Generate volume rescales'))
+        for loader in loaders)
+
+    return train_files, valid_files
+
+
+def get_loaders(
+    tset: Sequence[tuple[Path, Path]],
+    vset: Sequence[tuple[Path, Path]],
+    batch: int,
+    workers: int,
+    num_reps: int = 1,
+    maxscale: float = 1,
+    maxshift: float = 0,
+    valaug: bool = False,
+):
     aug = ShiftScale(maxscale=maxscale, maxshift=maxshift)
     return [
         idist.auto_dataloader(
-            dataset=SegThor(
-                caches=caches,
-                folders=folders,
-                clip=clip,
-                shape=shape,
+            NiftyDataset(
+                files=files,
                 num_reps=num_reps if is_train else (4 if valaug else 1),
                 aug=aug if is_train or valaug else None,
             ),
             batch_size=batch,
             num_workers=workers,
             shuffle=is_train,
-        ) for is_train, folders in [
-            (True, train_set),
-            (False, train_set),
-            (False, valid_set),
+        ) for is_train, files in [
+            (True, tset),
+            (False, tset),
+            (False, vset),
         ]
     ]

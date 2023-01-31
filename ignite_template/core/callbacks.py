@@ -2,6 +2,7 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
+from ignite.engine import Engine
 from ignite.handlers import Checkpoint, DiskSaver, global_step_from_engine
 from loguru import logger
 from torch.nn import Module
@@ -14,7 +15,7 @@ class Eval:
         self._sota = float('inf' if score_name.endswith('loss') else '-inf')
         self._score_name = score_name
 
-    def __call__(self, engine):
+    def __call__(self, engine: Engine):
         epoch_metrics: dict[str, list[str]] = defaultdict(list)
 
         for mode, loader in self._loaders.items():
@@ -35,17 +36,13 @@ class Eval:
         emit(f'[{engine.state.epoch:03d}] {metrics_str}')
 
 
-class Saver:
-    def __init__(self, net: Module, trainer: Any, score_name: str):
-        self.saver = Checkpoint(
-            {'model': net},
-            DiskSaver(Path()),
-            n_saved=1,
-            filename_prefix='best',
-            score_function=lambda engine: engine.state.metrics[score_name],
-            score_name=score_name,
-            global_step_transform=global_step_from_engine(trainer),
-        )
-
-    def __call__(self, engine):
-        return self.saver(engine)
+def get_saver(net: Module, trainer: Any, score_name: str) -> Checkpoint:
+    return Checkpoint(
+        {'model': net},
+        DiskSaver(Path()),
+        n_saved=1,
+        filename_prefix='best',
+        score_function=lambda engine: engine.state.metrics[score_name],
+        score_name=score_name,
+        global_step_transform=global_step_from_engine(trainer),
+    )

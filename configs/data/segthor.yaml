@@ -1,12 +1,16 @@
-_target_: ignite_template.data.segthor.get_loaders
+prepare:
+  _target_: ignite_template.data.segthor.prepare_data
+  folder: /home/titan/source/data
+  val_ratio: 0.3
+  workers: 24
+  shape: [128, 128, 128]
+  hu_range: [-1000, 1300]
 
-folder: /home/titan/source/data
-split_coef: 0.3
-batch: 8
-workers: 24
-num_reps: 20
-shape: [128, 128, 128]
-clip: [-1000, 1300]
-maxscale: 1.0
-maxshift: 0.0
-valaug: false
+loaders:
+  _target_: ignite_template.data.segthor.get_loaders
+  batch: 8
+  workers: 24
+  num_reps: 20
+  maxscale: 1.0
+  maxshift: 0.0
+  valaug: false
