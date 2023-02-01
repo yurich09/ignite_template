@@ -1,6 +1,6 @@
 _target_: ignite_template.models.unet3d.UNet
 
-num_channels: 1
-num_classes: 5
+num_channels: ${data.num_channels}
+num_classes: ${data.num_classes}
 scale: 0.5
 upsample: True

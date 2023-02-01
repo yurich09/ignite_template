@@ -24,14 +24,16 @@ def to_prob(pred: torch.Tensor,
             true: torch.Tensor) -> tuple[int, torch.Tensor, torch.Tensor]:
     """
     Convert `pred` of logits with shape [B, C, ...] to probs,
-    i.e. tensors of float.
+    i.e. tensors of float32.
     """
     assert pred.shape[0] == true.shape[0]
     assert pred.shape[2:] == true.shape[1:]
-
     c = pred.shape[1]
-    pred = pred.softmax(dim=1)
 
+    with torch.autocast('cuda'):  # Softmax is always fp32
+        pred = pred.softmax(dim=1)
+
+    assert pred.dtype == torch.float32
     return c, pred, true
 
 

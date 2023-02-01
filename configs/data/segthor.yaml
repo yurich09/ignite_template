@@ -1,16 +1,20 @@
+shape: [128, 128, 128]
+num_channels: 1
+num_classes: 5
+workers: 24
+
 prepare:
-  _target_: ignite_template.data.segthor.prepare_data
+  _target_: ignite_template.data.segthor.get_datasets
   folder: /home/titan/source/data
   val_ratio: 0.3
-  workers: 24
-  shape: [128, 128, 128]
+  shape: ${data.shape}
   hu_range: [-1000, 1300]
-
-loaders:
-  _target_: ignite_template.data.segthor.get_loaders
-  batch: 8
-  workers: 24
   num_reps: 20
   maxscale: 1.0
   maxshift: 0.0
   valaug: false
+
+loaders:
+  _target_: ignite_template.data.segthor.get_loaders
+  batch: 8
+  workers: ${data.workers}

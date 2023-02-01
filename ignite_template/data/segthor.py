@@ -214,11 +214,14 @@ class NiftyCacher(Dataset):
         return (to_voi, to_mask)
 
 
-@dataclass(frozen=True)
 class NiftyDataset(Dataset):
-    files: Sequence[tuple[Path, Path]]
-    num_reps: int = 1
-    aug: Any | None = None
+    def __init__(self,
+                 files: Sequence[tuple[Path, Path]],
+                 num_reps: int = 1,
+                 aug: Any | None = None) -> None:
+        self.files = files
+        self.num_reps = num_reps
+        self.aug = aug
 
     def __len__(self) -> int:
         return len(self.files) * self.num_reps
@@ -235,14 +238,17 @@ class NiftyDataset(Dataset):
         return torch.from_numpy(voi), torch.from_numpy(mask).long()
 
 
-def prepare_data(
+def get_datasets(
     folder: str,
     val_ratio: float,
     shape: Sequence[int],
     hu_range: tuple[int, int],
-    workers: int,
     seed: int | None = None,
-) -> tuple[list[tuple[Path, Path]], list[tuple[Path, Path]]]:
+    num_reps: int = 1,
+    maxscale: float = 1,
+    maxshift: float = 0,
+    valaug: bool = False,
+) -> tuple[NiftyDataset, NiftyDataset, NiftyDataset]:
     assert idist.get_rank() == 0
 
     dataroot = _find_root(Path(folder))
@@ -252,43 +258,36 @@ def prepare_data(
     caches = (cacheroot / f'hu_{hu_range[0]}_{hu_range[1]}',
               cacheroot / 'masks')
 
+    # Generate small volumes to optimize disk reads
     fsets = (
         NiftyCacher(caches, dirs, hu_range, shape)
         for dirs in (train_dirs, valid_dirs))
 
-    loaders = (DataLoader(fset, None, num_workers=workers) for fset in fsets)
+    loaders = (DataLoader(fset, None, num_workers=8) for fset in fsets)
 
     train_files, valid_files = (
         list(tqdm(loader, desc='Generate volume rescales'))
         for loader in loaders)
 
-    return train_files, valid_files
+    # Create final datasets
+    taug = ShiftScale(maxscale=maxscale, maxshift=maxshift)
+    tset = NiftyDataset(train_files, num_reps=num_reps, aug=taug)
+
+    vaug, vreps = (taug, 4) if taug and valaug else (None, 1)
+    tvset = NiftyDataset(train_files, num_reps=vreps, aug=vaug)
+    vset = NiftyDataset(valid_files, num_reps=vreps, aug=vaug)
+
+    return tset, tvset, vset
 
 
-def get_loaders(
-    tset: Sequence[tuple[Path, Path]],
-    vset: Sequence[tuple[Path, Path]],
-    batch: int,
-    workers: int,
-    num_reps: int = 1,
-    maxscale: float = 1,
-    maxshift: float = 0,
-    valaug: bool = False,
-):
-    aug = ShiftScale(maxscale=maxscale, maxshift=maxshift)
+def get_loaders(subsets: tuple[Dataset, Dataset, Dataset], batch: int,
+                workers: int):
+    tset, tvset, vset = subsets
     return [
         idist.auto_dataloader(
-            NiftyDataset(
-                files=files,
-                num_reps=num_reps if is_train else (4 if valaug else 1),
-                aug=aug if is_train or valaug else None,
-            ),
+            dset,
             batch_size=batch,
             num_workers=workers,
             shuffle=is_train,
-        ) for is_train, files in [
-            (True, tset),
-            (False, tset),
-            (False, vset),
-        ]
+        ) for is_train, dset in [(True, tset), (False, tvset), (False, vset)]
     ]

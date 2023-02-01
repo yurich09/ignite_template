@@ -1,3 +1,4 @@
+import torch
 import torch.nn.functional as F
 from torch.nn import Module
 
@@ -17,5 +18,8 @@ class DiceLoss(Module):
 
 class WeightLoss(Module):
     def forward(self, inputs, targets):
-        return (F.cross_entropy(inputs, targets)
-                + 0.5 * _dice_loss(inputs, targets))
+        with torch.autocast('cuda'):  # Always use fp32
+            cce = F.cross_entropy(inputs, targets)
+
+        dice_loss = _dice_loss(inputs, targets)
+        return cce + 0.5 * dice_loss

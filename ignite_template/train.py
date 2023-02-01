@@ -19,7 +19,7 @@ NUM_GPUS = torch.cuda.device_count()
 DIST_PARAMS = {'backend': 'nccl', 'nproc_per_node': NUM_GPUS}
 
 
-def train(rank, cfg: DictConfig, tset, vset, device):
+def train(rank, cfg: DictConfig, subsets, device):
     if cfg.seed:
         manual_seed(cfg.seed)
     if rank == 0:
@@ -30,10 +30,7 @@ def train(rank, cfg: DictConfig, tset, vset, device):
 
     logger.info(f'Creating <{cfg.data.loaders._target_}>')
     tloader, t2loader, vloader = hydra.utils.instantiate(
-        cfg.data.loaders,
-        tset=tset,
-        vset=vset,
-    )
+        cfg.data.loaders, subsets=subsets)
 
     logger.info(f'Creating <{cfg.model._target_}>')
     net: Module = hydra.utils.instantiate(cfg.model)
@@ -99,13 +96,13 @@ def train(rank, cfg: DictConfig, tset, vset, device):
 
 @hydra.main('../configs', 'train.yaml', '1.3')
 def main(cfg):
-    tset, vset = hydra.utils.instantiate(cfg.data.prepare)
+    subsets = hydra.utils.instantiate(cfg.data.prepare)
 
     if cfg.device == 'cuda' and NUM_GPUS > 1:
         with idist.Parallel(**DIST_PARAMS) as parallel:
-            parallel.run(train, cfg, tset, vset, cfg.device)
+            parallel.run(train, cfg, subsets, cfg.device)
     else:
-        train(0, cfg, tset, vset, cfg.device)
+        train(0, cfg, subsets, cfg.device)
 
 
 if __name__ == '__main__':

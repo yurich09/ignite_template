@@ -3,7 +3,7 @@ defaults:
   - data: segthor.yaml
   - model: unetr.yaml
   - loss: dice_cce.yaml
-  - optim: adamw.yaml
+  - optim: radam.yaml
   - sched: onecycle.yaml
   - metrics: default.yaml
   - hydra: default.yaml
