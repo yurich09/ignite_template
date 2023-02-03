@@ -149,4 +149,5 @@ configs/local/default.yaml
 /data/
 /logs/
 /notebook/
+/outputs/
 .env

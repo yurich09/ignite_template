@@ -6,7 +6,7 @@ import warnings
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, List
 
 import ignite.distributed as idist
 import nibabel as nib
@@ -151,7 +151,7 @@ class ShiftScale:
         return rs
 
 
-def _load_zxy(path: Path) -> tuple[np.ndarray, Any]:
+def _load_zxy(path: Path | str) -> tuple[np.ndarray, Any]:
     obj = nib.load(str(path))
     xyz = np.asanyarray(obj.dataobj)
     return xyz.transpose(2, 0, 1), obj.affine
@@ -291,3 +291,29 @@ def get_loaders(subsets: tuple[Dataset, Dataset, Dataset], batch: int,
             shuffle=is_train,
         ) for is_train, dset in [(True, tset), (False, tvset), (False, vset)]
     ]
+
+class EvalDataset(Dataset):
+    def __init__(self, data: Sequence[str], shape:List[int], hu_range: List[int]) -> None:
+        self.shape = shape
+        self.hu_range = hu_range
+        self.data = data
+
+    def __len__(self) -> int:
+        return len(self.data)
+
+    def __getitem__(self, idx: int) -> tuple[str, torch.Tensor, torch.Tensor]:
+        folder =  self.data[idx]
+        voi_path = f'{folder}/{Path(folder).name}.nii.gz'
+        mask_path = f'{folder}/GT.nii.gz'
+        voi, _ = _load_zxy(voi_path)
+        mask, _ = _load_zxy(mask_path)
+
+        voi = norm_zero_to_one(voi, self.hu_range[0], self.hu_range[1])
+
+        voi = resize(voi, 3, self.shape)
+
+        voi = voi[None, ...]  # c z x y
+        return folder, torch.from_numpy(voi), torch.from_numpy(mask).long()
+
+def val_loaders(shape:List[int], hu_range: List[int], data: Sequence[str],):
+    return DataLoader(EvalDataset(data, shape, hu_range), batch_size=1)

@@ -5,7 +5,7 @@ workers: 24
 
 prepare:
   _target_: ignite_template.data.segthor.get_datasets
-  folder: /home/titan/source/data
+  folder: /home/skyusr/src/segthor/train
   val_ratio: 0.3
   shape: ${data.shape}
   hu_range: [-1000, 1300]
@@ -13,8 +13,14 @@ prepare:
   maxscale: 1.0
   maxshift: 0.0
   valaug: false
+  seed: ${seed}
 
 loaders:
   _target_: ignite_template.data.segthor.get_loaders
-  batch: 8
+  batch: 4
   workers: ${data.workers}
+
+eval:
+  _target_: ignite_template.data.segthor.val_loaders
+  shape: ${data.shape}
+  hu_range: [-1000, 1300]

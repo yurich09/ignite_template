@@ -1,7 +1,7 @@
 defaults:
   - _self_
   - data: segthor.yaml
-  - model: unetr.yaml
+  - model: unet3d.yaml
   - loss: dice_cce.yaml
   - optim: radam.yaml
   - sched: onecycle.yaml
@@ -9,8 +9,8 @@ defaults:
   - hydra: default.yaml
 
 device: cuda
-epoch: 100
-fp16: true
+epoch: 2
+fp16: false
 
 # seed for random number generators in pytorch, numpy and python.random
 seed: 12345
