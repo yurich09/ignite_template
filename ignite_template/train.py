@@ -19,7 +19,7 @@ NUM_GPUS = torch.cuda.device_count()
 DIST_PARAMS = {'backend': 'nccl', 'nproc_per_node': NUM_GPUS}
 
 
-def train(rank, cfg: DictConfig, subsets, device):
+def train(rank, cfg: DictConfig, subsets):
     if cfg.seed:
         manual_seed(cfg.seed)
     if rank == 0:
@@ -39,10 +39,10 @@ def train(rank, cfg: DictConfig, subsets, device):
         p.numel() for it in (net.parameters(), net.buffers()) for p in it)
     logger.info(f'Total parameters: {num_params/1e6:.2f}M')
 
-    if device == 'cuda':
+    if cfg.device == 'cuda':
         net = idist.auto_model(net, sync_bn=True)
     else:
-        net.to(device)
+        net.to(cfg.device)
 
     logger.info(f'Creating <{cfg.loss._target_}>')
     loss: Module = hydra.utils.instantiate(cfg.loss)
@@ -60,7 +60,7 @@ def train(rank, cfg: DictConfig, subsets, device):
 
     metrics = make_metrics(cfg.metrics, loss=loss)
 
-    load_kwargs = {'device': device, 'non_blocking': True}
+    load_kwargs = {'device': cfg.device, 'non_blocking': True}
     if cfg.fp16:
         logger.info('FP16 is enabled')
         amp, scaler = 'amp', True
@@ -100,9 +100,9 @@ def main(cfg):
 
     if cfg.device == 'cuda' and NUM_GPUS > 1:
         with idist.Parallel(**DIST_PARAMS) as parallel:
-            parallel.run(train, cfg, subsets, cfg.device)
+            parallel.run(train, cfg, subsets)
     else:
-        train(0, cfg, subsets, cfg.device)
+        train(0, cfg, subsets)
 
 
 if __name__ == '__main__':

@@ -6,15 +6,17 @@ import warnings
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, List
+from typing import Any
 
 import ignite.distributed as idist
-import nibabel as nib
 import numpy as np
 import torch
+from loguru import logger
 from scipy import ndimage
 from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
+
+from ignite_template.core.data import clip_and_norm, load_zyx, resize, save_zyx
 
 
 def _find_root(dataroot: Path) -> Path:
@@ -27,6 +29,8 @@ def _split(dataroot: Path, val_ratio: float,
     assert idist.get_rank() == 0
 
     folders = sorted(dataroot.iterdir())
+    if seed is None:
+        logger.warning('Split seed not set. Train/val split is randomized')
     random.Random(seed).shuffle(folders)
 
     pos = int(len(folders) * val_ratio)
@@ -40,77 +44,6 @@ def _split(dataroot: Path, val_ratio: float,
         json.dump(obj, fp, indent=2)
 
     return subsets
-
-
-def sub_idiv(x: np.ndarray, sub: np.ndarray, div: np.ndarray) -> np.ndarray:
-    """Efficiently do `(x - sub) / div`. Output is `f4`"""
-    #  sub -> buf[f32] -> idiv
-    x = np.subtract(x, sub, dtype='f4')
-    x /= div
-    return x
-
-
-def norm_zero_to_one(
-    a: np.ndarray,
-    a_min: float | None = None,
-    a_max: float | None = None,
-    axes=None,
-) -> np.ndarray:
-    """
-    Clips data to [min ... max] range, then remaps to [0 ... 1] range
-    """
-    if a_min is None:
-        a_min = a.min(axes, keepdims=True)
-    if a_max is None:
-        a_max = a.max(axes, keepdims=True)
-    return sub_idiv(a, a_min, a_max - a_min)  # type: ignore
-
-
-def clip_and_norm(arr: np.ndarray,
-                  min_clip: float,
-                  max_clip: float,
-                  axes=None) -> np.ndarray:
-    arr = arr.clip(min_clip, max_clip)
-    return norm_zero_to_one(arr, min_clip, max_clip, axes=axes)
-
-
-def _resize(data: np.ndarray,
-            zoom: Sequence[float],
-            order: int,
-            antialias: bool = False) -> np.ndarray:
-    """
-    This function resizes input data with specified interpolation mode.
-
-    Parameters:
-    - data - data to process it
-    - order - The interpolation order
-      (0 - nearest, 1 - linear, 2 - quadratic, 3 - cubic, etc.., up to 5)
-    - antialias - set to use gaussian smoothing to reduce high frequencies and
-      suppress aliasing.
-    """
-    if antialias:
-        data = ndimage.gaussian_filter(data, sigma=0.35 / np.array(zoom))
-
-    return ndimage.zoom(data, zoom=zoom, order=order, prefilter=False)
-
-
-def resize(data: np.ndarray,
-           order: int,
-           shape: Sequence[int],
-           antialias: bool = False) -> np.ndarray:
-    """
-    This function resizes input data with specified interpolation mode.
-
-    Parameters:
-    - data - data to process it
-    - order - The interpolation order
-      (0 - nearest, 1 - linear, 2 - quadratic, 3 - cubic, etc.., up to 5)
-    - shape - The target shape
-    - antialias - set to use gaussian smoothing to reduce high frequencies and
-      suppress aliasing.
-    """
-    zoom = [dst / src for dst, src in zip(shape, data.shape)]
-    return _resize(data, zoom, order, antialias)
 
 
 warnings.filterwarnings('ignore', module='scipy.ndimage')
@@ -151,36 +84,18 @@ class ShiftScale:
         return rs
 
 
-def _load_zxy(path: Path | str) -> tuple[np.ndarray, Any]:
-    obj = nib.load(str(path))
-    xyz = np.asanyarray(obj.dataobj)
-    return xyz.transpose(2, 0, 1), obj.affine
-
-
 def _load_voi(path: Path, hu_range: tuple[int, int],
               shape: Sequence[int]) -> tuple[np.ndarray, Any]:
-    arr, mat = _load_zxy(path)
+    arr, mat = load_zyx(path)
     arr = clip_and_norm(arr, *hu_range)
     arr = resize(arr, 3, shape)  # cubic resize
     return arr, mat
 
 
 def _load_gt(path: Path, shape: Sequence[int]) -> tuple[np.ndarray, Any]:
-    arr, mat = _load_zxy(path)
+    arr, mat = load_zyx(path)
     arr = resize(arr, 0, shape)  # nearest resize
     return arr, mat
-
-
-def _save_zxy(path: Path, zxy: np.ndarray, mat) -> None:
-    xyz = zxy.transpose(1, 2, 0)
-
-    if xyz.dtype in ['i8', 'i4']:
-        xyz = xyz.astype('i2')
-    elif xyz.dtype == 'f8':
-        xyz = xyz.astype('f4')
-
-    path.parent.mkdir(parents=True, exist_ok=True)
-    nib.Nifti1Image(xyz, mat).to_filename(str(path))
 
 
 @dataclass(frozen=True)
@@ -204,12 +119,12 @@ class NiftyCacher(Dataset):
         # Save volume
         if not to_voi.is_file():
             voi, mat = _load_voi(from_voi, self.hu_range, self.shape)
-            _save_zxy(to_voi, voi, mat)
+            save_zyx(to_voi, voi, mat)
 
         # Save mask
         if not to_mask.is_file():
             mask, mat = _load_gt(from_mask, self.shape)
-            _save_zxy(to_mask, mask, mat)
+            save_zyx(to_mask, mask, mat)
 
         return (to_voi, to_mask)
 
@@ -228,8 +143,8 @@ class NiftyDataset(Dataset):
 
     def __getitem__(self, idx: int) -> tuple[torch.Tensor, ...]:
         voi_path, mask_path = self.files[idx % len(self.files)]
-        voi, _ = _load_zxy(voi_path)
-        mask, _ = _load_zxy(mask_path)
+        voi, _ = load_zyx(voi_path)
+        mask, _ = load_zyx(mask_path)
 
         if self.aug:
             voi, mask = self.aug(voi, mask)
@@ -292,8 +207,10 @@ def get_loaders(subsets: tuple[Dataset, Dataset, Dataset], batch: int,
         ) for is_train, dset in [(True, tset), (False, tvset), (False, vset)]
     ]
 
+
 class EvalDataset(Dataset):
-    def __init__(self, data: Sequence[str], shape:List[int], hu_range: List[int]) -> None:
+    def __init__(self, data: Sequence[str], shape: tuple[int, ...],
+                 hu_range: tuple[int, int]) -> None:
         self.shape = shape
         self.hu_range = hu_range
         self.data = data
@@ -301,19 +218,23 @@ class EvalDataset(Dataset):
     def __len__(self) -> int:
         return len(self.data)
 
-    def __getitem__(self, idx: int) -> tuple[str, torch.Tensor, torch.Tensor]:
-        folder =  self.data[idx]
-        voi_path = f'{folder}/{Path(folder).name}.nii.gz'
-        mask_path = f'{folder}/GT.nii.gz'
-        voi, _ = _load_zxy(voi_path)
-        mask, _ = _load_zxy(mask_path)
+    def __getitem__(self, idx: int) -> tuple[Path, torch.Tensor, torch.Tensor]:
+        folder = Path(self.data[idx])
+        voi_path = folder / f'{folder.name}.nii.gz'
+        mask_path = folder / 'GT.nii.gz'
+        voi, _ = load_zyx(voi_path)
+        mask, _ = load_zyx(mask_path)
 
-        voi = norm_zero_to_one(voi, self.hu_range[0], self.hu_range[1])
-
+        voi = clip_and_norm(voi, *self.hu_range)
         voi = resize(voi, 3, self.shape)
 
         voi = voi[None, ...]  # c z x y
         return folder, torch.from_numpy(voi), torch.from_numpy(mask).long()
 
-def val_loaders(shape:List[int], hu_range: List[int], data: Sequence[str],):
+
+def val_loaders(
+    shape: tuple[int, ...],
+    hu_range: tuple[int, int],
+    data: Sequence[str],
+):
     return DataLoader(EvalDataset(data, shape, hu_range), batch_size=1)
