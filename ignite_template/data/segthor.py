@@ -218,7 +218,7 @@ class EvalDataset(Dataset):
     def __len__(self) -> int:
         return len(self.data)
 
-    def __getitem__(self, idx: int) -> tuple[Path, torch.Tensor, torch.Tensor]:
+    def __getitem__(self, idx: int) -> tuple[str, torch.Tensor, torch.Tensor]:
         folder = Path(self.data[idx])
         voi_path = folder / f'{folder.name}.nii.gz'
         mask_path = folder / 'GT.nii.gz'
@@ -228,8 +228,8 @@ class EvalDataset(Dataset):
         voi = clip_and_norm(voi, *self.hu_range)
         voi = resize(voi, 3, self.shape)
 
-        voi = voi[None, ...]  # c z x y
-        return folder, torch.from_numpy(voi), torch.from_numpy(mask).long()
+        voi = voi[None, ...]  # c z y x
+        return str(folder), torch.from_numpy(voi), torch.from_numpy(mask).long()
 
 
 def val_loaders(
