@@ -13,6 +13,7 @@ prepare:
   maxscale: 1.0
   maxshift: 0.0
   valaug: false
+  seed: ${seed}
 
 loaders:
   _target_: ignite_template.data.segthor.get_loaders

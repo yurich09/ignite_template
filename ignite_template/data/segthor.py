@@ -12,6 +12,7 @@ import ignite.distributed as idist
 import nibabel as nib
 import numpy as np
 import torch
+from loguru import logger
 from scipy import ndimage
 from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
@@ -27,6 +28,8 @@ def _split(dataroot: Path, val_ratio: float,
     assert idist.get_rank() == 0
 
     folders = sorted(dataroot.iterdir())
+    if seed is None:
+        logger.warning('Split seed not set. Train/val split is randomized')
     random.Random(seed).shuffle(folders)
 
     pos = int(len(folders) * val_ratio)
