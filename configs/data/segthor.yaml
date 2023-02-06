@@ -19,3 +19,8 @@ loaders:
   _target_: ignite_template.data.segthor.get_loaders
   batch: 8
   workers: ${data.workers}
+
+eval:
+  _target_: ignite_template.data.segthor.val_loaders
+  shape: ${data.shape}
+  hu_range: [-1000, 1300]

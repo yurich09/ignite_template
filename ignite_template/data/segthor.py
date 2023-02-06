@@ -9,7 +9,6 @@ from pathlib import Path
 from typing import Any
 
 import ignite.distributed as idist
-import nibabel as nib
 import numpy as np
 import torch
 from loguru import logger
@@ -207,3 +206,35 @@ def get_loaders(subsets: tuple[Dataset, Dataset, Dataset], batch: int,
             shuffle=is_train,
         ) for is_train, dset in [(True, tset), (False, tvset), (False, vset)]
     ]
+
+
+class EvalDataset(Dataset):
+    def __init__(self, data: Sequence[str], shape: tuple[int, ...],
+                 hu_range: tuple[int, int]) -> None:
+        self.shape = shape
+        self.hu_range = hu_range
+        self.data = data
+
+    def __len__(self) -> int:
+        return len(self.data)
+
+    def __getitem__(self, idx: int) -> tuple[str, torch.Tensor, torch.Tensor]:
+        folder = Path(self.data[idx])
+        voi_path = folder / f'{folder.name}.nii.gz'
+        mask_path = folder / 'GT.nii.gz'
+        voi, _ = load_zyx(voi_path)
+        mask, _ = load_zyx(mask_path)
+
+        voi = clip_and_norm(voi, *self.hu_range)
+        voi = resize(voi, 3, self.shape)
+
+        voi = voi[None, ...]  # c z y x
+        return str(folder), torch.from_numpy(voi), torch.from_numpy(mask).long()
+
+
+def val_loaders(
+    shape: tuple[int, ...],
+    hu_range: tuple[int, int],
+    data: Sequence[str],
+):
+    return DataLoader(EvalDataset(data, shape, hu_range), batch_size=1)
