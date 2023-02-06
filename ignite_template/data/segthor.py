@@ -13,7 +13,7 @@ import numpy as np
 import torch
 from loguru import logger
 from scipy import ndimage
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader, Dataset, default_collate
 from tqdm import tqdm
 
 from ignite_template.core.data import clip_and_norm, load_zyx, resize, save_zyx
@@ -40,7 +40,7 @@ def _split(dataroot: Path, val_ratio: float,
         k: [p.as_posix() for p in ps]
         for k, ps in zip(('train', 'val'), subsets)
     }
-    with Path(f'split.json').open('w') as fp:
+    with Path('split.json').open('w') as fp:
         json.dump(obj, fp, indent=2)
 
     return subsets
@@ -229,12 +229,27 @@ class EvalDataset(Dataset):
         voi = resize(voi, 3, self.shape)
 
         voi = voi[None, ...]  # c z y x
-        return str(folder), torch.from_numpy(voi), torch.from_numpy(mask).long()
+        return (str(folder), torch.from_numpy(voi),
+                torch.from_numpy(mask).long())
 
 
-def val_loaders(
-    shape: tuple[int, ...],
-    hu_range: tuple[int, int],
-    data: Sequence[str],
-):
-    return DataLoader(EvalDataset(data, shape, hu_range), batch_size=1)
+def _collate_fn_internal(batch):
+    if (all(isinstance(x, (torch.Tensor, np.ndarray)) for x in batch)
+            and len({x.shape for x in batch}) > 1):
+        return [torch.as_tensor(x) for x in batch]
+    return default_collate(batch)
+
+
+def _collate_fn(batch):
+    groups = *zip(*batch),
+    return *(_collate_fn_internal(group) for group in groups),
+
+
+def get_val_loader(shape: tuple[int, ...], hu_range: tuple[int, int],
+                   data: Sequence[str]):
+    return DataLoader(
+        EvalDataset(data, shape, hu_range),
+        batch_size=4,
+        num_workers=8,
+        collate_fn=_collate_fn,
+    )

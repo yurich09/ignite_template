@@ -5,10 +5,10 @@ from torch.distributed import nn
 _EPS = torch.finfo(torch.half).eps
 
 
-def to_index(pred: torch.Tensor,
-             true: torch.Tensor) -> tuple[int, torch.Tensor, torch.Tensor]:
+def to_indices(pred: torch.Tensor,
+               true: torch.Tensor) -> tuple[int, torch.Tensor, torch.Tensor]:
     """
-    Convert `pred` of logits with shape [B, C, ...] to [B, ...] of indices,
+    Convert `pred` of logits with shape `(B C *)` to `(B *)` of indices,
     i.e. tensors of long.
     """
     assert pred.shape[0] == true.shape[0]
@@ -20,10 +20,10 @@ def to_index(pred: torch.Tensor,
     return c, pred, true
 
 
-def to_prob(pred: torch.Tensor,
-            true: torch.Tensor) -> tuple[int, torch.Tensor, torch.Tensor]:
+def to_probs(pred: torch.Tensor,
+             true: torch.Tensor) -> tuple[int, torch.Tensor, torch.Tensor]:
     """
-    Convert `pred` of logits with shape [B, C, ...] to probs,
+    Convert `pred` of logits with shape `(B C *)` to probs,
     i.e. tensors of float32.
     """
     assert pred.shape[0] == true.shape[0]
@@ -37,8 +37,13 @@ def to_prob(pred: torch.Tensor,
     return c, pred, true
 
 
-def confusion_mat(pred: torch.Tensor, true: torch.Tensor) -> torch.Tensor:
-    c, pred, true = to_index(pred, true)
+def confusion(c: int, pred: torch.Tensor, true: torch.Tensor) -> torch.Tensor:
+    """
+    Compute `(C C)` confusion matrix from `(B *)` predicted and
+    `(B *)` ground-truth index tensors.
+    """
+    assert pred.shape == true.shape
+    assert pred.dtype == true.dtype == torch.long
 
     # flatten
     pred = pred.view(-1)  # (b n)
@@ -48,8 +53,14 @@ def confusion_mat(pred: torch.Tensor, true: torch.Tensor) -> torch.Tensor:
     return mat.index_put_((true, pred), torch.tensor(1), accumulate=True)
 
 
-def confusion_mat_grad(pred: torch.Tensor, true: torch.Tensor) -> torch.Tensor:
-    c, pred, true = to_prob(pred, true)
+def soft_confusion(c: int, pred: torch.Tensor,
+                   true: torch.Tensor) -> torch.Tensor:
+    """
+    Compute differentiable `(C C)` confusion matrix from `(B C *)` probs
+    and `(B *)` indices tensors.
+    """
+    assert pred.shape[0] == true.shape[0]
+    assert pred.shape[2:] == true.shape[1:]
 
     # flatten
     b = true.shape[0]

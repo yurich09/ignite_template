@@ -10,7 +10,7 @@ from loguru import logger
 from omegaconf import DictConfig
 from torch.nn import Module
 
-from .base import confusion_mat, dice
+from .base import confusion, dice, to_indices
 
 
 class Dice(Metric):
@@ -30,7 +30,8 @@ class Dice(Metric):
     @reinit__is_reduced
     def update(self, output: tuple[torch.Tensor, torch.Tensor]) -> None:
         pred, true = (o.detach() for o in output)
-        self._mat += confusion_mat(pred, true).to(self._device)
+        c, pred, true = to_indices(pred, true)
+        self._mat += confusion(c, pred, true).to(self._device)
 
     @sync_all_reduce('_mat:SUM')
     def compute(self) -> float | torch.Tensor:

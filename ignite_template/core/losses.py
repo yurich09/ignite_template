@@ -2,11 +2,13 @@ import torch
 import torch.nn.functional as F
 from torch.nn import Module
 
-from .base import confusion_mat_grad, dice
+from .base import dice, soft_confusion, to_probs
 
 
 def _dice_loss(pred, true):
-    mat = confusion_mat_grad(pred, true)
+    c, pred, true = to_probs(pred, true)
+    mat = soft_confusion(c, pred, true)
+
     mat = mat.double() / mat.sum()
     return 1 - dice(mat).mean()
 
