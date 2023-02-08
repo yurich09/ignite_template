@@ -1,0 +1,28 @@
+_target_: ignite_template.models.segformer.SegFormer3D
+
+channels: ${data.num_channels}
+num_classes: ${data.num_classes}
+
+# Slightly modified and 3D adjusted SegFormer-B1
+depths: [2, 2, 2, 2]
+
+# Encoder's poolings
+kernels: [6, 4, 4, 4]
+strides: [4, 2, 2, 2]
+
+# Encoder's E-MH-SA. Larger tile is faster (more internal pooling).
+emha_tiles: [8, 4, 2, 1]
+# 32 or 64. Max width is `max(heads) * head_dim`
+head_dim: 64
+heads: [1, 2, 5, 8]
+
+# Encoder's feed-forward
+ff_ratios: [8, 8, 4, 4]
+
+# No head's MLP, just sum (i.e. skipnet-like). If set, bumps memory usage (impl needs fix), use scale_factor < pool_strides[0] to compensate.
+decoder_dim: null
+# Output is same as input. If set means extra upsampling to combat pool_strides[0].
+scale_factor: null
+
+# Stochastic depth prob for residual blocks
+drop_prob: 0.1
