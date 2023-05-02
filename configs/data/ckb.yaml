@@ -1,0 +1,15 @@
+num_classes: 4
+workers: 4
+
+prepare:
+  _target_: ignite_template.data.ckb.get_datasets
+  aug: True
+
+
+loaders:
+  _target_: ignite_template.data.ckb.get_loaders
+  batch: 4
+  workers: ${data.workers}
+  samples: 4000
+  train: D:/histology_data/patch/train/
+  val: D:/histology_data/patch/val/

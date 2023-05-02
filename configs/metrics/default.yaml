@@ -2,4 +2,4 @@ _target_: ignite_template.core.metrics.make_metrics
 
 dice:
   _target_: ignite_template.core.metrics.Dice
-  num_classes: 5
+  num_classes: 4

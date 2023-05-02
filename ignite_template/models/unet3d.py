@@ -28,8 +28,9 @@ class Up(nn.Module):
         super().__init__()
         self.up: nn.Module
         if upsample:
-            self.up = nn.Upsample(
-                scale_factor=2, mode='trilinear', align_corners=True)
+            self.up = nn.Upsample(scale_factor=2)
+            # self.up = nn.Upsample(
+            #     scale_factor=2, mode='trilinear', align_corners=True)
             self.conv = double_conv(cin, cout, cin // 2)
         else:
             self.up = nn.ConvTranspose3d(cin, cin // 2, 2, stride=2)
@@ -49,19 +50,20 @@ class UNet(nn.Module):
                  upsample: bool = True):
         super().__init__()
 
-        dims = [int(c * scale) for c in (32, 64, 128, 256, 512)]
+        dims = [int(c * scale) for c in (32, 64, 128, 256)]
+        # dims = [int(c * scale) for c in (32, 64, 128, 256, 512)]
         factor = 2 if upsample else 1
 
         self.stem = double_conv(num_channels, dims[0])
         self.enc = nn.ModuleList([
             maxpool_conv(dims[0], dims[1]),
             maxpool_conv(dims[1], dims[2]),
-            maxpool_conv(dims[2], dims[3]),
-            maxpool_conv(dims[3], dims[4] // factor),
+            maxpool_conv(dims[2], dims[3] // factor),
+            # maxpool_conv(dims[3], dims[4] // factor),
         ])
 
         self.dec = nn.ModuleList([
-            Up(dims[4], dims[3] // factor, upsample),
+            # Up(dims[4], dims[3] // factor, upsample),
             Up(dims[3], dims[2] // factor, upsample),
             Up(dims[2], dims[1] // factor, upsample),
             Up(dims[1], dims[0], upsample),
